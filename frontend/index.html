@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Server Health &amp; VM Database Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar" role="banner">
+    <div class="brand-group">
+      <div class="brand-title-row">
+        <span class="status-beacon ok" id="global-health-dot" aria-hidden="true"></span>
+        <h1 class="console-title">Server Health &amp; Monitoring Dashboard</h1>
+      </div>
+      <p class="console-subtitle" id="plain-health-summary">Checking server health and VM database connection...</p>
+    </div>
+
+    <div class="toolbar" role="region" aria-label="Quick Actions">
+      <label class="interval-control" for="poll-interval">
+        <span>Auto-Update</span>
+        <select id="poll-interval" name="poll-interval">
+          <option value="2000">Every 2 sec</option>
+          <option value="5000" selected>Every 5 sec</option>
+          <option value="10000">Every 10 sec</option>
+        </select>
+      </label>
+      <button type="button" id="theme-toggle-btn" class="btn btn-secondary" aria-label="Switch color theme">Dark Mode</button>
+      <button type="button" id="toggle-poll-btn" class="btn btn-secondary">Pause Live Updates</button>
+      <button type="button" id="record-snapshot-btn" class="btn btn-primary">Save Reading to VM Database</button>
+    </div>
+  </header>
+
+  <main class="console-main" id="main-content">
+    <section class="alert-banner hidden" id="error-banner" role="alert">
+      <strong>Connection Notice:</strong>
+      <span id="error-banner-text">Reconnecting to the WSL monitoring server...</span>
+    </section>
+
+    <!-- PLAIN-ENGLISH ARCHITECTURE PIPELINE BANNER -->
+    <section class="architecture-strip" aria-label="How This System Works">
+      <div class="arch-step">
+        <span class="arch-step-num">1</span>
+        <div class="arch-step-body">
+          <div class="arch-step-head">
+            <strong>WSL2 Linux Web Server</strong>
+            <span class="status-badge online" id="arch-wsl-badge">ONLINE</span>
+          </div>
+          <p id="arch-wsl-detail">Reads live CPU, Memory, Disk &amp; running apps from Ubuntu 22.04.</p>
+        </div>
+      </div>
+
+      <div class="arch-arrow" aria-hidden="true">➔</div>
+
+      <div class="arch-step">
+        <span class="arch-step-num">2</span>
+        <div class="arch-step-body">
+          <div class="arch-step-head">
+            <strong>WSL-to-VM Network Bridge</strong>
+            <span class="status-badge online mono-value" id="arch-bridge-badge">Port 3306</span>
+          </div>
+          <p id="arch-bridge-detail">Forwards data from WSL to VirtualBox over TCP port 3306.</p>
+        </div>
+      </div>
+
+      <div class="arch-arrow" aria-hidden="true">➔</div>
+
+      <div class="arch-step">
+        <span class="arch-step-num">3</span>
+        <div class="arch-step-body">
+          <div class="arch-step-head">
+            <strong>VirtualBox VM Database</strong>
+            <span class="status-badge online" id="arch-vm-badge">CONNECTED</span>
+          </div>
+          <p id="arch-vm-detail">Stores server list, alerts &amp; history inside Ubuntu Server VM.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- NAVIGATION TABS -->
+    <nav class="subnav" aria-label="Dashboard Sections">
+      <div class="tab-list" role="tablist">
+        <button type="button" role="tab" aria-selected="true" aria-controls="panel-overview" id="tab-overview" class="tab-btn active" data-target="panel-overview">
+          1. Live Server Overview
+        </button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="panel-servers" id="tab-servers" class="tab-btn" data-target="panel-servers">
+          2. Monitored Servers (<span id="nav-server-count">2</span>)
+        </button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="panel-services" id="tab-services" class="tab-btn" data-target="panel-services">
+          3. Port &amp; Service Checks (<span id="nav-service-count">3</span>)
+        </button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="panel-alerts" id="tab-alerts" class="tab-btn" data-target="panel-alerts">
+          4. Alerts &amp; Rules (<span id="nav-alert-count">0</span>)
+        </button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="panel-history" id="tab-history" class="tab-btn" data-target="panel-history">
+          5. VM Database Records (<span id="nav-history-count">0</span>)
+        </button>
+      </div>
+    </nav>
+
+    <!-- TAB 1: LIVE SERVER OVERVIEW -->
+    <div id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" class="tab-panel">
+      <section class="telemetry-grid" aria-label="4 Key Health Indicators">
+        <!-- CPU CARD -->
+        <article class="metric-panel" aria-labelledby="cpu-heading">
+          <div class="panel-header">
+            <div>
+              <h2 id="cpu-heading">Processor Load (CPU)</h2>
+              <p class="card-helper" id="cpu-plain-desc">How hard the server brain is working</p>
+            </div>
+            <span class="mono-value highlight" id="cpu-percent-val">--%</span>
+          </div>
+          <div class="meter-track" role="progressbar" aria-labelledby="cpu-heading" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="cpu-meter-bar">
+            <div class="meter-fill" id="cpu-fill"></div>
+          </div>
+          <div class="plain-status-row">
+            <span class="status-badge online" id="cpu-state-badge">Normal Load</span>
+            <span class="mono-value muted-small" id="cpu-cores-val">-- Cores</span>
+          </div>
+          <dl class="sub-readouts">
+            <div>
+              <dt>1m / 5m / 15m Average</dt>
+              <dd class="mono-value" id="load-avg-val">-- / -- / --</dd>
+            </div>
+            <div>
+              <dt>Server Uptime</dt>
+              <dd class="mono-value" id="uptime-val">--</dd>
+            </div>
+          </dl>
+        </article>
+
+        <!-- MEMORY CARD -->
+        <article class="metric-panel" aria-labelledby="mem-heading">
+          <div class="panel-header">
+            <div>
+              <h2 id="mem-heading">Memory Usage (RAM)</h2>
+              <p class="card-helper" id="mem-plain-desc">Active working memory used by running apps</p>
+            </div>
+            <span class="mono-value highlight" id="mem-percent-val">--%</span>
+          </div>
+          <div class="meter-track" role="progressbar" aria-labelledby="mem-heading" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="mem-meter-bar">
+            <div class="meter-fill" id="mem-fill"></div>
+          </div>
+          <div class="plain-status-row">
+            <span class="status-badge online" id="mem-state-badge">Plenty of Free RAM</span>
+            <span class="mono-value muted-small" id="mem-free-val">-- MB Free</span>
+          </div>
+          <dl class="sub-readouts">
+            <div>
+              <dt>RAM Used / Total</dt>
+              <dd class="mono-value" id="mem-used-val">-- / -- MB</dd>
+            </div>
+            <div>
+              <dt>Backup Swap Used</dt>
+              <dd class="mono-value" id="swap-used-val">-- / -- MB</dd>
+            </div>
+          </dl>
+        </article>
+
+        <!-- DISK CARD -->
+        <article class="metric-panel" aria-labelledby="disk-heading">
+          <div class="panel-header">
+            <div>
+              <h2 id="disk-heading">Disk Storage Space</h2>
+              <p class="card-helper" id="disk-plain-desc">Hard drive space used on the Linux server</p>
+            </div>
+            <span class="mono-value highlight" id="disk-percent-val">--%</span>
+          </div>
+          <div class="meter-track" role="progressbar" aria-labelledby="disk-heading" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="disk-meter-bar">
+            <div class="meter-fill" id="disk-fill"></div>
+          </div>
+          <div class="plain-status-row">
+            <span class="status-badge online" id="disk-state-badge">Healthy Storage</span>
+            <span class="mono-value muted-small" id="disk-free-val">-- GB Free</span>
+          </div>
+          <dl class="sub-readouts">
+            <div>
+              <dt>Used / Total Capacity</dt>
+              <dd class="mono-value" id="disk-used-val">-- / -- GB</dd>
+            </div>
+            <div>
+              <dt>Mount Location</dt>
+              <dd class="mono-value">Root Drive (/)</dd>
+            </div>
+          </dl>
+        </article>
+
+        <!-- NETWORK & VM DB CARD -->
+        <article class="metric-panel" aria-labelledby="net-heading">
+          <div class="panel-header">
+            <div>
+              <h2 id="net-heading">Network &amp; VM Link</h2>
+              <p class="card-helper">Live data speed and VM database response</p>
+            </div>
+            <span class="mono-value highlight" id="net-rate-val">-- KB/s</span>
+          </div>
+          <div class="plain-status-row">
+            <span class="status-badge online" id="vm-db-pill-badge">VM DB Connected</span>
+            <span class="mono-value muted-small" id="kpi-db-latency">Ping: -- ms</span>
+          </div>
+          <dl class="sub-readouts net-readouts">
+            <div>
+              <dt>Download (Received) / Upload (Sent)</dt>
+              <dd class="mono-value" id="net-rx-tx-val">-- KB/s down · -- KB/s up</dd>
+            </div>
+            <div>
+              <dt>WSL IP Address ➔ Windows Host IP</dt>
+              <dd class="mono-value" id="net-ips-val">-- ➔ --</dd>
+            </div>
+          </dl>
+        </article>
+      </section>
+
+      <section class="split-workspace" aria-label="Live Chart and Active Programs">
+        <article class="workspace-panel" aria-labelledby="chart-heading">
+          <div class="panel-header">
+            <div>
+              <h2 id="chart-heading">Processor &amp; Memory History (Live Chart)</h2>
+              <p class="card-helper">Tracks CPU % and RAM % over recent readings</p>
+            </div>
+            <div class="chart-legend">
+              <span class="legend-item"><span class="legend-swatch cpu-swatch"></span>Processor (CPU %)</span>
+              <span class="legend-item"><span class="legend-swatch mem-swatch"></span>Memory (RAM %)</span>
+            </div>
+          </div>
+          <div class="canvas-wrap">
+            <canvas id="telemetry-chart" width="640" height="220" aria-label="CPU and Memory utilization trend line chart"></canvas>
+          </div>
+        </article>
+
+        <article class="workspace-panel" aria-labelledby="proc-heading">
+          <div class="panel-header">
+            <div>
+              <h2 id="proc-heading">Top Running Programs (Linux Processes)</h2>
+              <p class="card-helper">Programs currently using the most processor power</p>
+            </div>
+            <div class="filter-inline">
+              <label for="proc-filter-input" class="sr-only">Search programs</label>
+              <input type="search" id="proc-filter-input" placeholder="Search program or owner...">
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Program Name</th>
+                  <th scope="col">Owner</th>
+                  <th scope="col">CPU Used</th>
+                  <th scope="col">RAM Used</th>
+                  <th scope="col">Process ID</th>
+                </tr>
+              </thead>
+              <tbody id="process-tbody">
+                <tr>
+                  <td colspan="5" class="state-cell">Loading running programs...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+    </div>
+
+    <!-- TAB 2: MONITORED SERVERS FLEET -->
+    <div id="panel-servers" role="tabpanel" aria-labelledby="tab-servers" class="tab-panel hidden">
+      <div class="split-workspace">
+        <article class="workspace-panel" aria-labelledby="fleet-list-heading">
+          <div class="panel-header">
+            <div>
+              <h2 id="fleet-list-heading">Monitored Servers List</h2>
+              <p class="card-helper">Servers saved in your VirtualBox VM database and checked live</p>
+            </div>
+            <span class="mono-value badge-tag" id="fleet-summary-badge">2 Servers</span>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Status</th>
+                  <th scope="col">Server Name</th>
+                  <th scope="col">Address</th>
+                  <th scope="col">Role &amp; Environment</th>
+                  <th scope="col">CPU</th>
+                  <th scope="col">RAM</th>
+                  <th scope="col">Response</th>
+                  <th scope="col">Action</th>
+                </tr>
+              </thead>
+              <tbody id="servers-tbody">
+                <tr>
+                  <td colspan="8" class="state-cell">Loading monitored servers...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="workspace-panel" aria-labelledby="add-server-heading">
+          <div class="panel-header">
+            <div>
+              <h2 id="add-server-heading">Add a New Server</h2>
+              <p class="card-helper">Saves a new server entry directly into the VirtualBox VM database</p>
+            </div>
+          </div>
+          <form id="add-server-form" class="db-form">
+            <div class="form-row">
+              <div class="field-group">
+                <label for="srv-name">Friendly Server Name</label>
+                <input type="text" id="srv-name" required placeholder="e.g. Backup Storage Server">
+              </div>
+              <div class="field-group">
+                <label for="srv-hostname">Hostname</label>
+                <input type="text" id="srv-hostname" required placeholder="e.g. backup-01.local">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="field-group">
+                <label for="srv-ip">IP Address</label>
+                <input type="text" id="srv-ip" required placeholder="e.g. 127.0.0.1">
+              </div>
+              <div class="field-group">
+                <label for="srv-env">Environment</label>
+                <select id="srv-env">
+                  <option value="Production">Production</option>
+                  <option value="Staging">Staging</option>
+                  <option value="Development">Development</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="field-group">
+                <label for="srv-os">Operating System</label>
+                <input type="text" id="srv-os" value="Ubuntu Linux" required>
+              </div>
+              <div class="field-group">
+                <label for="srv-role">What does this server do?</label>
+                <input type="text" id="srv-role" value="Web / API Server" required>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Save Server to VM Database</button>
+            </div>
+          </form>
+        </article>
+      </div>
+    </div>
+
+    <!-- TAB 3: SERVICE & PORT CHECKS -->
+    <div id="panel-services" role="tabpanel" aria-labelledby="tab-services" class="tab-panel hidden">
+      <div class="split-workspace">
+        <article class="workspace-panel" aria-labelledby="services-list-heading">
+          <div class="panel-header">
+            <div>
+              <h2 id="services-list-heading">Service &amp; Port Health Checks</h2>
+              <p class="card-helper">Tests whether your web, database, and SSH ports are open and responding</p>
+            </div>
+            <span class="mono-value badge-tag">Live TCP Checks</span>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Status</th>
+                  <th scope="col">Service Name</th>
+                  <th scope="col">IP : Port</th>
+                  <th scope="col">Type</th>
+                  <th scope="col">Speed (Ping)</th>
+                  <th scope="col">Action</th>
+                </tr>
+              </thead>
+              <tbody id="services-tbody">
+                <tr>
+                  <td colspan="6" class="state-cell">Checking service ports...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="workspace-panel" aria-labelledby="add-service-heading">
+          <div class="panel-header">
+            <div>
+              <h2 id="add-service-heading">Add a Port Check</h2>
+              <p class="card-helper">Monitor any network port (like HTTP 80, MySQL 3306, or SSH 22)</p>
+            </div>
+          </div>
+          <form id="add-service-form" class="db-form">
+            <div class="form-row">
+              <div class="field-group">
+                <label for="svc-name">Service Name</label>
+                <input type="text" id="svc-name" required placeholder="e.g. Web Frontend Port">
+              </div>
+              <div class="field-group">
+                <label for="svc-proto">Service Type</label>
+                <select id="svc-proto">
+                  <option value="HTTP">Web (HTTP)</option>
+                  <option value="MySQL/TCP">Database (MySQL/TCP)</option>
+                  <option value="SSH/TCP">Remote Shell (SSH/TCP)</option>
+                  <option value="TCP">Custom TCP Port</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="field-group">
+                <label for="svc-host">Host IP Address</label>
+                <input type="text" id="svc-host" value="127.0.0.1" required>
+              </div>
+              <div class="field-group small">
+                <label for="svc-port">Port Number</label>
+                <input type="number" id="svc-port" value="8080" min="1" max="65535" required>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Add Port Check</button>
+            </div>
+          </form>
+        </article>
+      </div>
+    </div>
+
+    <!-- TAB 4: ALERTS & THRESHOLD RULES -->
+    <div id="panel-alerts" role="tabpanel" aria-labelledby="tab-alerts" class="tab-panel hidden">
+      <div class="split-workspace">
+        <article class="workspace-panel" aria-labelledby="alerts-feed-heading">
+          <div class="panel-header">
+            <div>
+              <h2 id="alerts-feed-heading">Warning &amp; Alert Log</h2>
+              <p class="card-helper">Recorded whenever CPU, RAM, or Disk goes above your warning limits</p>
+            </div>
+            <button type="button" id="trigger-test-alert-btn" class="btn btn-secondary">Create Sample Alert</button>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Level</th>
+                  <th scope="col">Server</th>
+                  <th scope="col">What Happened</th>
+                  <th scope="col">Details</th>
+                  <th scope="col">Time</th>
+                  <th scope="col">Action</th>
+                </tr>
+              </thead>
+              <tbody id="alerts-tbody">
+                <tr>
+                  <td colspan="6" class="state-cell">No warnings or alerts. Everything is running within normal limits.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="workspace-panel" aria-labelledby="rules-heading">
+          <div class="panel-header">
+            <div>
+              <h2 id="rules-heading">Warning Limit Settings</h2>
+              <p class="card-helper">Choose when the system should warn you (stored in the VM database)</p>
+            </div>
+            <span class="mono-value badge-tag" id="rules-saved-badge">Saved in VM DB</span>
+          </div>
+          <form id="alert-rules-form" class="db-form">
+            <div class="form-row">
+              <div class="field-group">
+                <label for="rule-cpu">Warn if Processor (CPU) exceeds (%)</label>
+                <input type="number" id="rule-cpu" min="1" max="100" step="0.5" value="75" required>
+              </div>
+              <div class="field-group">
+                <label for="rule-mem">Warn if Memory (RAM) exceeds (%)</label>
+                <input type="number" id="rule-mem" min="1" max="100" step="0.5" value="80" required>
+              </div>
+              <div class="field-group">
+                <label for="rule-disk">Warn if Disk Storage exceeds (%)</label>
+                <input type="number" id="rule-disk" min="1" max="100" step="0.5" value="85" required>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Save Warning Limits</button>
+            </div>
+          </form>
+        </article>
+      </div>
+    </div>
+
+    <!-- TAB 5: DATABASE TELEMETRY HISTORY & CONNECTION -->
+    <div id="panel-history" role="tabpanel" aria-labelledby="tab-history" class="tab-panel hidden">
+      <section class="workspace-panel" aria-labelledby="history-heading">
+        <div class="panel-header">
+          <div>
+            <h2 id="history-heading">Saved Readings in VirtualBox VM Database</h2>
+            <p class="card-helper">Historical server health snapshots saved inside your Ubuntu Server VM (`os_monitor`)</p>
+          </div>
+          <div class="toolbar">
+            <span class="mono-value badge-tag" id="history-count-label">0 records</span>
+            <button type="button" id="export-csv-btn" class="btn btn-secondary">Download CSV File</button>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Record #</th>
+                <th scope="col">Time Recorded</th>
+                <th scope="col">Server Name</th>
+                <th scope="col">CPU Load</th>
+                <th scope="col">1m Avg</th>
+                <th scope="col">Memory Used</th>
+                <th scope="col">Disk Used</th>
+                <th scope="col">Saved Where?</th>
+              </tr>
+            </thead>
+            <tbody id="history-tbody">
+              <tr>
+                <td colspan="8" class="state-cell">Loading saved database records...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <details class="workspace-panel details-drawer">
+        <summary class="drawer-summary">
+          <span><strong>Advanced: VirtualBox VM Database Connection Settings</strong> (Click to view or test IP/Port)</span>
+          <span class="mono-value badge-tag" id="db-mode-badge">Connected</span>
+        </summary>
+        <div class="drawer-body">
+          <dl class="db-diagnostics">
+            <div>
+              <dt>VM Database Address</dt>
+              <dd class="mono-value" id="db-endpoint-val">192.168.56.1:3306</dd>
+            </div>
+            <div>
+              <dt>Network Port 3306</dt>
+              <dd class="mono-value" id="db-tcp-val">--</dd>
+            </div>
+            <div>
+              <dt>Database Login</dt>
+              <dd class="mono-value" id="db-auth-val">--</dd>
+            </div>
+            <div>
+              <dt>Response Speed</dt>
+              <dd class="mono-value" id="db-latency-val">-- ms</dd>
+            </div>
+            <div>
+              <dt>Total Saved Readings</dt>
+              <dd class="mono-value" id="db-rows-val">0</dd>
+            </div>
+          </dl>
+
+          <p class="db-diagnostic-note" id="db-error-note">Connected to VirtualBox VM database.</p>
+
+          <form id="db-config-form" class="db-form">
+            <div class="form-row">
+              <div class="field-group">
+                <label for="db-host-input">VM Host IP Address</label>
+                <input type="text" id="db-host-input" name="host" value="192.168.56.1" required>
+              </div>
+              <div class="field-group small">
+                <label for="db-port-input">Port</label>
+                <input type="number" id="db-port-input" name="port" value="3306" required>
+              </div>
+              <div class="field-group">
+                <label for="db-user-input">Database User</label>
+                <input type="text" id="db-user-input" name="user" value="monitor_user" required>
+              </div>
+              <div class="field-group">
+                <label for="db-pass-input">Password</label>
+                <input type="password" id="db-pass-input" name="password" placeholder="monitor_pass">
+              </div>
+              <div class="field-group">
+                <label for="db-name-input">Database Name</label>
+                <input type="text" id="db-name-input" name="database" value="os_monitor" required>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-secondary">Test &amp; Save Database Connection</button>
+            </div>
+          </form>
+        </div>
+      </details>
+    </div>
+  </main>
+
+  <footer class="console-footer">
+    <span id="host-identity">WSL2 Ubuntu 22.04 Server ➔ VirtualBox Ubuntu Server VM Database (`os_monitor`)</span>
+    <span class="mono-value" id="last-updated-val">Last updated: --</span>
+  </footer>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
